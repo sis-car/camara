@@ -1,15 +1,12 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Sistema de monitoreo en tiempo real para cámaras frigoríficas: temperatura, humedad, compresor y descongelado.">
   <title>Control Frigorífico Pro</title>
-  
-  <script src="https://www.gstatic.com/charts/loader.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   
   <style>
     body {
@@ -140,7 +137,60 @@
   </div>
 </div>
 
+  <!-- Toast container for notifications -->
+  <div class="toast-container position-fixed bottom-0 end-0 p-3" id="toastContainer" style="z-index:9999;"></div>
+
+  <!-- External scripts at the bottom for better performance -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://www.gstatic.com/charts/loader.js"></script>
+
   <script>
+    // ==========================================
+    // 0. FUNCIONES AUXILIARES
+    // ==========================================
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function escapeJs(str) {
+      return String(str)
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/"/g, '\\"')
+        .replace(/</g, '\\x3c')
+        .replace(/>/g, '\\x3e');
+    }
+
+    function formatVal(v, dec) {
+      const n = parseFloat(v);
+      return isNaN(n) ? '--' : n.toFixed(dec);
+    }
+
+    function showToast(tipo, mensaje) {
+      const colores = { success: 'bg-success', warning: 'bg-warning text-dark', danger: 'bg-danger' };
+      const id = 'toast_' + Date.now();
+      const clase = colores[tipo] || 'bg-primary';
+      const claseSegura = clase.replace(/[^a-zA-Z0-9 _-]/g, '');
+      document.getElementById('toastContainer').insertAdjacentHTML('beforeend', `
+        <div id="${escapeHtml(id)}" class="toast align-items-center text-white ${claseSegura}" role="alert" aria-live="assertive" aria-atomic="true" data-bs-delay="4000">
+          <div class="d-flex">
+            <div class="toast-body fw-bold">${escapeHtml(mensaje)}</div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Cerrar"></button>
+          </div>
+        </div>`);
+      const toastEl = document.getElementById(id);
+      const toast = new bootstrap.Toast(toastEl);
+      toast.show();
+      toastEl.addEventListener('hidden.bs.toast', () => toastEl.remove());
+    }
+
     // ==========================================
     // 1. CONFIGURACIÓN FIREBASE
     // ==========================================
@@ -233,6 +283,10 @@
             renderizarTodo(htmlId, rows, esPremium, idEquipo);
             
             if (loaderIzq) loaderIzq.style.display = 'none';
+        }, err => {
+            console.error("Error al leer datos de Firebase:", err);
+            if (loaderIzq) loaderIzq.style.display = 'none';
+            showToast('danger', 'Error al leer datos: ' + err.message);
         });
       });
     }
@@ -250,74 +304,73 @@
     // ==========================================
     // 4. CONFIGURACIÓN (MODAL)
     // ==========================================
-// Función para habilitar/deshabilitar el selector de método
-function actualizarInterfazDefrost() {
-    const tieneDefrost = document.getElementById('cfg_defrost_hab').checked;
-    const selectorMetodo = document.getElementById('cfg_tipo_defrost');
-    const inputInt = document.getElementById('cfg_int_defrost');
-    const inputDur = document.getElementById('cfg_dur_defrost');
+    // Función para habilitar/deshabilitar el selector de método
+    function actualizarInterfazDefrost() {
+      const tieneDefrost = document.getElementById('cfg_defrost_hab').checked;
+      const selectorMetodo = document.getElementById('cfg_tipo_defrost');
+      const inputInt = document.getElementById('cfg_int_defrost');
+      const inputDur = document.getElementById('cfg_dur_defrost');
 
-    if (tieneDefrost) {
+      if (tieneDefrost) {
         selectorMetodo.disabled = false;
         inputInt.disabled = false;
         inputDur.disabled = false;
         selectorMetodo.classList.remove('bg-light');
-    } else {
+      } else {
         selectorMetodo.disabled = true;
         inputInt.disabled = true;
         inputDur.disabled = true;
         selectorMetodo.classList.add('bg-light'); // Se pone gris cuando está desactivado
+      }
     }
-}
 
-// Modificamos abrirConfig para que ejecute la lógica al inicio
-function abrirConfig(idEquipo) {
-    equipoSeleccionadoParaConfig = idEquipo;
-    document.getElementById('modalIdEquipo').innerText = idEquipo;
-    
-    db.ref(`configuracion/${idEquipo}/parametros`).once('value', snap => {
+    function abrirConfig(idEquipo) {
+      equipoSeleccionadoParaConfig = idEquipo;
+      document.getElementById('modalIdEquipo').textContent = idEquipo;
+
+      db.ref(`configuracion/${idEquipo}/parametros`).once('value', snap => {
         let p = snap.val() || {};
-        
+
         document.getElementById('cfg_defrost_hab').checked = p.defrost_habilitado || false;
         document.getElementById('cfg_tipo_defrost').value = p.tipo_defrost || "resistencia";
         document.getElementById('cfg_setpoint').value = (p.setpoint !== undefined) ? p.setpoint : "";
         document.getElementById('cfg_diff').value = (p.diferencial !== undefined) ? p.diferencial : "";
         document.getElementById('cfg_int_defrost').value = (p.int_defrost !== undefined) ? p.int_defrost : "";
         document.getElementById('cfg_dur_defrost').value = (p.dur_defrost !== undefined) ? p.dur_defrost : "";
-        
-        // Llamamos a la función para que el selector aparezca bien (gris o habilitado)
+
+        // Inicializar el estado del formulario según la config
         actualizarInterfazDefrost();
-        
+
         let miModal = new bootstrap.Modal(document.getElementById('modalConfig'));
         miModal.show();
-    });
-}
-
-function guardarConfig() {
-    const id = equipoSeleccionadoParaConfig;
-    if (!id) return;
-
-    // 1. Capturamos los nuevos campos (Check y Select)
-    const habDefrost = document.getElementById('cfg_defrost_hab').checked;
-    const tipoDefrost = document.getElementById('cfg_tipo_defrost').value;
-
-    // 2. Leemos los números (limpiando comas)
-    let rawSetpoint = document.getElementById('cfg_setpoint').value.toString().replace(',', '.');
-    let rawDiff = document.getElementById('cfg_diff').value.toString().replace(',', '.');
-    
-    let setpoint = parseFloat(rawSetpoint);
-    let diferencial = parseFloat(rawDiff);
-    let int_defrost = parseInt(document.getElementById('cfg_int_defrost').value);
-    let dur_defrost = parseInt(document.getElementById('cfg_dur_defrost').value);
-
-    // 3. Validación
-    if (isNaN(setpoint) || isNaN(diferencial) || isNaN(int_defrost) || isNaN(dur_defrost)) {
-        alert("⚠️ Error: Todos los campos numéricos deben estar completos.");
-        return;
+      });
     }
 
-    // 4. Armamos el objeto para Firebase
-    let datos = {
+    function guardarConfig() {
+      const id = equipoSeleccionadoParaConfig;
+      if (!id) return;
+
+      // 1. Capturamos los nuevos campos (Check y Select)
+      const habDefrost = document.getElementById('cfg_defrost_hab').checked;
+      const tipoDefrost = document.getElementById('cfg_tipo_defrost').value;
+
+      // 2. Leemos los números (limpiando comas)
+      let rawSetpoint = document.getElementById('cfg_setpoint').value.toString().replace(',', '.');
+      let rawDiff = document.getElementById('cfg_diff').value.toString().replace(',', '.');
+
+      let setpoint = parseFloat(rawSetpoint);
+      let diferencial = parseFloat(rawDiff);
+      let int_defrost = parseInt(document.getElementById('cfg_int_defrost').value);
+      let dur_defrost = parseInt(document.getElementById('cfg_dur_defrost').value);
+
+      // 3. Validación
+      if (isNaN(setpoint) || isNaN(diferencial) || isNaN(int_defrost) || isNaN(dur_defrost)) {
+        showToast('warning', '⚠️ Error: Todos los campos numéricos deben estar completos.');
+        return;
+      }
+
+      // 4. Armamos el objeto para Firebase
+      let datos = {
         defrost_habilitado: habDefrost,
         tipo_defrost: tipoDefrost,
         setpoint: setpoint,
@@ -325,13 +378,13 @@ function guardarConfig() {
         int_defrost: int_defrost,
         dur_defrost: dur_defrost,
         ultima_edicion: firebase.database.ServerValue.TIMESTAMP
-    };
+      };
 
-    db.ref(`configuracion/${id}/parametros`).update(datos).then(() => {
-        alert("✅ Configuración guardada.");
+      db.ref(`configuracion/${id}/parametros`).update(datos).then(() => {
+        showToast('success', '✅ Configuración guardada.');
         bootstrap.Modal.getInstance(document.getElementById('modalConfig')).hide();
-    }).catch(err => alert("Error: " + err.message));
-}
+      }).catch(err => showToast('danger', 'Error al guardar: ' + err.message));
+    }
 
     // ==========================================
     // 5. LÓGICA DE INTERFAZ 
@@ -351,7 +404,7 @@ function guardarConfig() {
           <div class="equipo-card">
             <div class="row">
               <div class="col-12 col-lg-2 text-center border-end position-relative">
-                <h5 class="text-primary mb-1 fw-bold">${idEquipo}</h5>
+                <h5 class="text-primary mb-1 fw-bold">${escapeHtml(idEquipo)}</h5>
                 <div id="reporte_${htmlId}" class="info-reporte">--/-- --:--</div>
                 
                 <div id="temp_${htmlId}" class="temp-valor">--°</div>
@@ -368,7 +421,7 @@ function guardarConfig() {
                   <div id="loader_izq_${htmlId}" class="loader-izq"><span class="spinner-border spinner-border-sm me-2"></span> Actualizando...</div>
                 </div>
 
-                <button class="btn btn-outline-dark btn-sm w-100 mt-3" onclick="abrirConfig('${idEquipo}')">
+                <button class="btn btn-outline-dark btn-sm w-100 mt-3" onclick="abrirConfig('${escapeJs(idEquipo)}')">
                     ⚙️ Configurar
                 </button>
               </div>
@@ -413,7 +466,7 @@ function guardarConfig() {
               <div class="d-flex gap-2 align-items-end flex-wrap">
                 <div><label class="small fw-bold d-block">Desde:</label><input type="datetime-local" id="inicio_${htmlId}" class="form-control form-control-sm" value="${formatearFechaLocal(ayer)}"></div>
                 <div><label class="small fw-bold d-block">Hasta:</label><input type="datetime-local" id="fin_${htmlId}" class="form-control form-control-sm" value="${formatearFechaLocal(ahora)}"></div>
-                <button class="btn btn-primary btn-sm px-4" onclick="actualizarUnEquipo('${idEquipo}')">Actualizar</button>
+                <button class="btn btn-primary btn-sm px-4" onclick="actualizarUnEquipo('${escapeJs(idEquipo)}')">Actualizar</button>
               </div>
             </div>
           </div>
@@ -457,17 +510,17 @@ function guardarConfig() {
       let ult = datos[datos.length - 1];
       let dReporte = new Date(ult[0]);
 
-      document.getElementById('reporte_' + htmlId).innerText = "🕒 " + dReporte.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      document.getElementById('temp_' + htmlId).innerText = ult[2] + "°";
-      document.getElementById('tamb_' + htmlId).innerText = ult[3];
-      document.getElementById('hum_' + htmlId).innerText = ult[4];
+      document.getElementById('reporte_' + htmlId).textContent = "🕒 " + dReporte.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      document.getElementById('temp_' + htmlId).textContent = ult[2] + "°";
+      document.getElementById('tamb_' + htmlId).textContent = ult[3];
+      document.getElementById('hum_' + htmlId).textContent = ult[4];
 
       // Actualizar Badges de Estado
       let bComp = document.getElementById('badge_comp_' + htmlId);
-      bComp.className = (ult[7] == 1) ? "badge status-badge bg-success" : "badge status-badge bg-secondary";
+      bComp.className = (ult[7] === 1) ? "badge status-badge bg-success" : "badge status-badge bg-secondary";
       
       let bDef = document.getElementById('badge_defrost_' + htmlId);
-      bDef.className = (ult[8] == 1) ? "badge status-badge bg-info text-dark" : "badge status-badge bg-secondary";
+      bDef.className = (ult[8] === 1) ? "badge status-badge bg-info text-dark" : "badge status-badge bg-secondary";
 
       let pta = document.getElementById('badge_puerta_' + htmlId);
       pta.className = (ult[5] === "ABIERTA") ? "badge status-badge bg-danger" : "badge status-badge bg-secondary";
@@ -485,7 +538,7 @@ function guardarConfig() {
               <div class="card p-4 shadow-lg text-center" style="max-width: 300px; border: 2px solid #ffc107; background: rgba(255,255,255,0.95);">
                 <h6 class="fw-bold mb-1 text-dark">Modo de Prueba</h6>
                 <p class="small mb-3 text-muted">Contrate el abono mensual para desbloquear el historial, analizar gráficos y exportar reportes.</p>
-                <button class="btn-upgrade" onclick="solicitarPremium('${idEquipoOriginal}')">🚀 ACTIVAR PREMIUM</button>
+                <button class="btn-upgrade" onclick="solicitarPremium('${escapeJs(idEquipoOriginal)}')">🚀 ACTIVAR PREMIUM</button>
               </div>
             </div>
           `);
@@ -500,14 +553,14 @@ function guardarConfig() {
         datos.slice().reverse().forEach((f, index) => {
           let realIdx = datos.length - 1 - index;
           let h = new Date(f[0]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          let compState = (f[7] == 1) ? "🟢" : "-";
-          let defState = (f[8] == 1) ? "❄️" : "-";
+          let compState = (f[7] === 1) ? "🟢" : "-";
+          let defState = (f[8] === 1) ? "❄️" : "-";
           htmlTabla += `
-            <tr id="fila_${htmlId}_${realIdx}" class="fila-clickeable" onclick="seleccionarPuntoGrafico('${htmlId}', ${realIdx})">
+            <tr id="fila_${htmlId}_${realIdx}" class="fila-clickeable" onclick="seleccionarPuntoGrafico('${escapeJs(htmlId)}', ${realIdx})">
               <td>${h}</td>
               <td><strong>${f[2]}°</strong></td>
-              <td>${parseFloat(f[3]).toFixed(1)}°</td>
-              <td>${parseFloat(f[4]).toFixed(0)}%</td>
+              <td>${formatVal(f[3], 1)}°</td>
+              <td>${formatVal(f[4], 0)}%</td>
               <td>${compState} ${defState}</td>
             </tr>`;
         });
@@ -548,8 +601,8 @@ function guardarConfig() {
         let fila = [new Date(f[0]), parseFloat(f[2])];
         if (showAmb) fila.push(parseFloat(f[3]) || null);
         if (showHum) fila.push(parseFloat(f[4]) || null);
-        if (showComp) fila.push((f[7] == 1) ? 1 : 0);
-        if (showDef) fila.push((f[8] == 1) ? 1 : 0);
+        if (showComp) fila.push((f[7] === 1) ? 1 : 0);
+        if (showDef) fila.push((f[8] === 1) ? 1 : 0);
         rows.push(fila);
       });
 
@@ -640,7 +693,7 @@ function guardarConfig() {
           let h = Math.floor(diffMins / 60);
           let m = diffMins % 60;
           let label = document.getElementById('medidorGlobal');
-          label.innerText = h > 0 ? `⏱ ${h}h ${m}m` : `⏱ ${m} min`;
+          label.textContent = h > 0 ? `⏱ ${h}h ${m}m` : `⏱ ${m} min`;
           label.style.left = (e.clientX + 15) + 'px';
           label.style.top = (e.clientY - 30) + 'px';
           label.style.display = 'block';
