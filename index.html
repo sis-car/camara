@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Control Frigorífico Pro</title>
+  
+  <script src="https://www.gstatic.com/charts/loader.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  
+  <style>
+    body {
+      background-color: #f4f6f9;
+      padding: 10px;
+      font-family: 'Segoe UI', sans-serif;
+    }
+    .equipo-card {
+      background: white;
+      border-radius: 12px;
+      padding: 15px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+      border-top: 5px solid #0d6efd;
+    }
+    .chart-wrapper {
+      position: relative;
+      width: 100%;
+      height: 350px;
+      user-select: none;
+    }
+    .chart-container {
+      width: 100%;
+      height: 100%;
+      transition: filter 0.3s;
+    }
+    .medidor-area {
+      position: absolute;
+      background: rgba(255, 140, 0, 0.25);
+      border-left: 2px solid #ff8c00;
+      border-right: 2px solid #ff8c00;
+      top: 0; bottom: 0; pointer-events: none; display: none; z-index: 10;
+    }
+    .medidor-label {
+      position: fixed; background: #ff8c00; color: white; padding: 5px 10px;
+      border-radius: 6px; font-size: 12px; font-weight: bold; pointer-events: none;
+      display: none; z-index: 1000; box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    }
+    .table-container {
+      max-height: 350px; overflow-y: auto; font-size: 0.75rem; border: 1px solid #eee; position: relative;
+    }
+    .fila-resaltada { background-color: #fff3cd !important; outline: 1px solid #ffc107; transition: background-color 0.3s; }
+    .fila-clickeable { cursor: pointer; }
+    .fila-clickeable:hover { background-color: #f8f9fa; }
+    .loader-izq {
+      position: absolute; bottom: -35px; left: 0; right: 0; background: rgba(13,110,253,0.9);
+      color: white; padding: 8px; text-align: center; font-size: 0.8rem; border-radius: 0 0 8px 8px;
+      display: none; font-weight: 500;
+    }
+    .temp-valor { font-size: 2.2rem; font-weight: bold; line-height: 1; margin: 10px 0;}
+    .data-extra { background: #f8f9fa; border-radius: 8px; padding: 8px; margin-top: 10px; border: 1px solid #e9ecef; position: relative; }
+    .info-reporte { font-size: 0.7rem; color: #666; margin-bottom: 5px; }
+    .preset-btn { font-size: 0.75rem; padding: 4px 8px; margin: 0 1px; }
+    .preset-btn.active { background-color: #0d6efd !important; border-color: #0d6efd; color: white; }
+    .status-badge { font-size: 0.7rem; padding: 5px 8px; margin: 2px; }
+
+    /* ESTILOS FREEMIUM */
+    .chart-blurred { filter: blur(6px); pointer-events: none; opacity: 0.5; }
+    .premium-overlay {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 20; background: rgba(255, 255, 255, 0.15);
+    }
+    .btn-upgrade {
+      background: linear-gradient(135deg, #ffc107 0%, #ff9800 100%); color: #000; font-weight: bold;
+      border: none; padding: 12px 24px; border-radius: 50px; box-shadow: 0 4px 15px rgba(255, 152, 0, 0.4);
+      transition: all 0.2s; cursor: pointer;
+    }
+    .btn-upgrade:hover { transform: scale(1.05); box-shadow: 0 6px 20px rgba(255, 152, 0, 0.6); }
+  </style>
+</head>
+<body>
+  <div class="container-fluid">
+    <div id="paneles-container">
+      <div class="alert alert-info">Cargando equipos desde Firebase...</div>
+    </div>
+  </div>
+
+<div class="modal fade" id="modalConfig" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-dark text-white">
+        <h5 class="modal-title">⚙️ Configurar: <span id="modalIdEquipo"></span></h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12">
+            <div class="form-check form-switch p-3 border rounded bg-light">
+              <input class="form-check-input ms-0 me-2" type="checkbox" id="cfg_defrost_hab" onchange="actualizarInterfazDefrost()">
+              <label class="form-check-label fw-bold" for="cfg_defrost_hab">¿Tiene Descongelado?</label>
+            </div>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label fw-bold">Método de Descongelado</label>
+            <select class="form-select" id="cfg_tipo_defrost">
+              <option value="resistencia">Resistencia Eléctrica</option>
+              <option value="gas">Gas Caliente</option>
+            </select>
+          </div>
+
+          <div class="col-6">
+            <label class="form-label fw-bold">Setpoint (°C)</label>
+            <input type="number" step="0.1" id="cfg_setpoint" class="form-control">
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-bold">Diferencial (°C)</label>
+            <input type="number" step="0.1" id="cfg_diff" class="form-control">
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-bold">Int. Defrost (hs)</label>
+            <input type="number" id="cfg_int_defrost" class="form-control">
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-bold">Dur. Defrost (min)</label>
+            <input type="number" id="cfg_dur_defrost" class="form-control">
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer bg-light">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <button type="button" class="btn btn-primary px-4" onclick="guardarConfig()">Guardar Cambios</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+  <script>
+    // ==========================================
+    // 1. CONFIGURACIÓN FIREBASE
+    // ==========================================
+    const firebaseConfig = {
+      // REEMPLAZÁ CON LA URL DE TU BASE DE DATOS
+      databaseURL: "https://monitoreo-frigorifico-default-rtdb.firebaseio.com",
+    };
+    
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+    const db = firebase.database();
+
+    let datosCachados = {};
+    let graficosInstancias = {};
+    let viewWindows = {};
+    let medidoresEstado = {};
+    let mapaEquipos = {};
+    let escuchasActivas = {}; // Para matar el listener cuando cambiamos de fecha
+    let equipoSeleccionadoParaConfig = "";
+
+    google.charts.load('current', { packages: ['corechart'] });
+    google.charts.setOnLoadCallback(obtenerListaEquipos);
+
+    function formatearFechaLocal(fecha) {
+      const pad = n => String(n).padStart(2, '0');
+      return fecha.getFullYear() + '-' + pad(fecha.getMonth() + 1) + '-' + pad(fecha.getDate()) + 'T' +
+             pad(fecha.getHours()) + ':' + pad(fecha.getMinutes());
+    }
+
+    // ==========================================
+    // 2. LECTURA DE DATOS FIREBASE
+    // ==========================================
+    function obtenerListaEquipos() {
+      db.ref('logs').once('value')
+        .then(snapshot => {
+          let equipos = [];
+          snapshot.forEach(child => equipos.push(child.key));
+          crearTarjetas(equipos);
+        })
+        .catch(err => {
+          console.error("Error al obtener equipos:", err);
+          document.getElementById('paneles-container').innerHTML = '<div class="alert alert-danger">Error conectando</div>';
+        });
+    }
+
+    function actualizarUnEquipo(idEquipo) {
+      let htmlId = idEquipo.replace(/[^a-zA-Z0-9]/g, '_');
+      let loaderIzq = document.getElementById('loader_izq_' + htmlId);
+      if (loaderIzq) loaderIzq.style.display = 'block';
+
+      let fechaInicioStr = document.getElementById('inicio_' + htmlId).value;
+      let fechaFinStr = document.getElementById('fin_' + htmlId).value;
+      let inicioMs = new Date(fechaInicioStr).getTime();
+      let finMs = new Date(fechaFinStr).getTime();
+
+      // CONSULTA DEL PLAN
+      db.ref(`configuracion/${idEquipo}/plan`).once('value').then(planSnapshot => {
+        let plan = planSnapshot.val() || "basico"; 
+        let esPremium = (plan === "premium");
+
+        // Detenemos la escucha anterior si existe para no duplicar
+        if (escuchasActivas[idEquipo]) {
+            escuchasActivas[idEquipo].off();
+        }
+
+        let queryRef;
+        if (esPremium) {
+          queryRef = db.ref(`logs/${idEquipo}`).orderByChild('timestamp').startAt(inicioMs).endAt(finMs);
+        } else {
+          queryRef = db.ref(`logs/${idEquipo}`).orderByChild('timestamp').limitToLast(50);
+        }
+        
+        escuchasActivas[idEquipo] = queryRef;
+
+        // AHORA USAMOS .on() PARA ESCUCHAR EN TIEMPO REAL
+        queryRef.on('value', snapshot => {
+            let rows = [];
+            snapshot.forEach(child => {
+              let d = child.val();
+              // AGREGAMOS COMPRESOR Y DEFROST AL ARRAY [0:ts, 1:id, 2:t_cam, 3:t_amb, 4:hum, 5:pta, 6:msg, 7:comp, 8:def]
+              rows.push([
+                d.timestamp, idEquipo, parseFloat(d.t_camara) || 0, d.t_ambiente || "--", d.humedad || "--", 
+                d.puerta || "DESCONOCIDO", d.mensaje || "OK", d.compresor || 0, d.defrost || 0
+              ]);
+            });
+            
+            datosCachados[htmlId] = rows;
+            viewWindows[htmlId] = null;
+            renderizarTodo(htmlId, rows, esPremium, idEquipo);
+            
+            if (loaderIzq) loaderIzq.style.display = 'none';
+        });
+      });
+    }
+
+    // ==========================================
+    // 3. WHATSAPP PREMIUM
+    // ==========================================
+    function solicitarPremium(idEquipo) {
+      const numeroVentas = "5491157505803"; 
+      const mensaje = `Hola, quiero activar el Historial Premium para el equipo: ${idEquipo}. ¿Me pasan los datos para el abono?`;
+      const url = `https://wa.me/${numeroVentas}?text=${encodeURIComponent(mensaje)}`;
+      window.open(url, '_blank');
+    }
+
+    // ==========================================
+    // 4. CONFIGURACIÓN (MODAL)
+    // ==========================================
+// Función para habilitar/deshabilitar el selector de método
+function actualizarInterfazDefrost() {
+    const tieneDefrost = document.getElementById('cfg_defrost_hab').checked;
+    const selectorMetodo = document.getElementById('cfg_tipo_defrost');
+    const inputInt = document.getElementById('cfg_int_defrost');
+    const inputDur = document.getElementById('cfg_dur_defrost');
+
+    if (tieneDefrost) {
+        selectorMetodo.disabled = false;
+        inputInt.disabled = false;
+        inputDur.disabled = false;
+        selectorMetodo.classList.remove('bg-light');
+    } else {
+        selectorMetodo.disabled = true;
+        inputInt.disabled = true;
+        inputDur.disabled = true;
+        selectorMetodo.classList.add('bg-light'); // Se pone gris cuando está desactivado
+    }
+}
+
+// Modificamos abrirConfig para que ejecute la lógica al inicio
+function abrirConfig(idEquipo) {
+    equipoSeleccionadoParaConfig = idEquipo;
+    document.getElementById('modalIdEquipo').innerText = idEquipo;
+    
+    db.ref(`configuracion/${idEquipo}/parametros`).once('value', snap => {
+        let p = snap.val() || {};
+        
+        document.getElementById('cfg_defrost_hab').checked = p.defrost_habilitado || false;
+        document.getElementById('cfg_tipo_defrost').value = p.tipo_defrost || "resistencia";
+        document.getElementById('cfg_setpoint').value = (p.setpoint !== undefined) ? p.setpoint : "";
+        document.getElementById('cfg_diff').value = (p.diferencial !== undefined) ? p.diferencial : "";
+        document.getElementById('cfg_int_defrost').value = (p.int_defrost !== undefined) ? p.int_defrost : "";
+        document.getElementById('cfg_dur_defrost').value = (p.dur_defrost !== undefined) ? p.dur_defrost : "";
+        
+        // Llamamos a la función para que el selector aparezca bien (gris o habilitado)
+        actualizarInterfazDefrost();
+        
+        let miModal = new bootstrap.Modal(document.getElementById('modalConfig'));
+        miModal.show();
+    });
+}
+
+function guardarConfig() {
+    const id = equipoSeleccionadoParaConfig;
+    if (!id) return;
+
+    // 1. Capturamos los nuevos campos (Check y Select)
+    const habDefrost = document.getElementById('cfg_defrost_hab').checked;
+    const tipoDefrost = document.getElementById('cfg_tipo_defrost').value;
+
+    // 2. Leemos los números (limpiando comas)
+    let rawSetpoint = document.getElementById('cfg_setpoint').value.toString().replace(',', '.');
+    let rawDiff = document.getElementById('cfg_diff').value.toString().replace(',', '.');
+    
+    let setpoint = parseFloat(rawSetpoint);
+    let diferencial = parseFloat(rawDiff);
+    let int_defrost = parseInt(document.getElementById('cfg_int_defrost').value);
+    let dur_defrost = parseInt(document.getElementById('cfg_dur_defrost').value);
+
+    // 3. Validación
+    if (isNaN(setpoint) || isNaN(diferencial) || isNaN(int_defrost) || isNaN(dur_defrost)) {
+        alert("⚠️ Error: Todos los campos numéricos deben estar completos.");
+        return;
+    }
+
+    // 4. Armamos el objeto para Firebase
+    let datos = {
+        defrost_habilitado: habDefrost,
+        tipo_defrost: tipoDefrost,
+        setpoint: setpoint,
+        diferencial: diferencial,
+        int_defrost: int_defrost,
+        dur_defrost: dur_defrost,
+        ultima_edicion: firebase.database.ServerValue.TIMESTAMP
+    };
+
+    db.ref(`configuracion/${id}/parametros`).update(datos).then(() => {
+        alert("✅ Configuración guardada.");
+        bootstrap.Modal.getInstance(document.getElementById('modalConfig')).hide();
+    }).catch(err => alert("Error: " + err.message));
+}
+
+    // ==========================================
+    // 5. LÓGICA DE INTERFAZ 
+    // ==========================================
+    function crearTarjetas(equipos) {
+      let container = document.getElementById('paneles-container');
+      container.innerHTML = '';
+
+      let ahora = new Date();
+      let ayer = new Date(ahora.getTime() - (24 * 60 * 60 * 1000));
+
+      equipos.forEach(idEquipo => {
+        let htmlId = idEquipo.replace(/[^a-zA-Z0-9]/g, '_');
+        mapaEquipos[htmlId] = idEquipo;
+
+        container.insertAdjacentHTML('beforeend', `
+          <div class="equipo-card">
+            <div class="row">
+              <div class="col-12 col-lg-2 text-center border-end position-relative">
+                <h5 class="text-primary mb-1 fw-bold">${idEquipo}</h5>
+                <div id="reporte_${htmlId}" class="info-reporte">--/-- --:--</div>
+                
+                <div id="temp_${htmlId}" class="temp-valor">--°</div>
+                
+                <div class="d-flex justify-content-center flex-wrap gap-1 mb-2">
+                    <span id="badge_comp_${htmlId}" class="badge status-badge bg-secondary">COMP</span>
+                    <span id="badge_defrost_${htmlId}" class="badge status-badge bg-secondary">DEFROST</span>
+                    <span id="badge_puerta_${htmlId}" class="badge status-badge bg-secondary">PUERTA</span>
+                </div>
+
+                <div class="data-extra">
+                  <div class="small text-muted">AMBIENTE</div>
+                  <div class="fw-bold"><span id="tamb_${htmlId}">--</span>° | <span id="hum_${htmlId}">--</span>%</div>
+                  <div id="loader_izq_${htmlId}" class="loader-izq"><span class="spinner-border spinner-border-sm me-2"></span> Actualizando...</div>
+                </div>
+
+                <button class="btn btn-outline-dark btn-sm w-100 mt-3" onclick="abrirConfig('${idEquipo}')">
+                    ⚙️ Configurar
+                </button>
+              </div>
+
+              <div class="col-12 col-lg-6">
+                <div class="d-flex justify-content-between px-2 mb-1">
+                  <small class="text-muted">Rueda: Zoom | Clic: Ver en tabla</small>
+                  <div class="d-flex gap-2 flex-wrap">
+                    <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="checkAmb_${htmlId}" onchange="redibujarGraficoSolo('${htmlId}')"><label class="form-check-label small" for="checkAmb_${htmlId}">Amb</label></div>
+                    <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="checkHum_${htmlId}" onchange="redibujarGraficoSolo('${htmlId}')"><label class="form-check-label small" for="checkHum_${htmlId}">Hum</label></div>
+                    <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="checkComp_${htmlId}" onchange="redibujarGraficoSolo('${htmlId}')" checked><label class="form-check-label small fw-bold text-success" for="checkComp_${htmlId}">Comp</label></div>
+                    <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="checkDef_${htmlId}" onchange="redibujarGraficoSolo('${htmlId}')"><label class="form-check-label small text-info fw-bold" for="checkDef_${htmlId}">Defr</label></div>
+                    <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="checkMedir_${htmlId}"><label class="form-check-label small fw-bold text-warning" for="checkMedir_${htmlId}">📏 Medir</label></div>
+                  </div>
+                </div>
+                <div class="chart-wrapper" id="wrapper_${htmlId}">
+                  <div id="chart_${htmlId}" class="chart-container"></div>
+                  <div id="area_${htmlId}" class="medidor-area"></div>
+                </div>
+              </div>
+              <div class="col-12 col-lg-4">
+                <div class="table-container" id="container_tabla_${htmlId}">
+                  <table class="table table-sm text-center mb-0">
+                    <thead class="table-light sticky-top">
+                      <tr><th>Hora</th><th>Cámara</th><th>Amb</th><th>Hum</th><th>C/D</th></tr>
+                    </thead>
+                    <tbody id="tabla_${htmlId}"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            
+            <div class="bg-light p-2 rounded mt-3 d-flex flex-wrap align-items-end justify-content-between">
+              <div class="d-flex gap-1 mb-2 mb-md-0 align-items-center flex-wrap">
+                <span class="small fw-bold me-2">Rango a mostrar:</span>
+                <button class="btn btn-outline-primary btn-sm preset-btn" data-range="1h" onclick="setPreset(this, '${htmlId}')">1 h</button>
+                <button class="btn btn-outline-primary btn-sm preset-btn" data-range="12h" onclick="setPreset(this, '${htmlId}')">12 hs</button>
+                <button class="btn btn-outline-primary btn-sm preset-btn active" data-range="24h" onclick="setPreset(this, '${htmlId}')">24 hs</button>
+                <button class="btn btn-outline-primary btn-sm preset-btn" data-range="7d" onclick="setPreset(this, '${htmlId}')">7 días</button>
+                <button class="btn btn-outline-primary btn-sm preset-btn" data-range="all" onclick="setPreset(this, '${htmlId}')">Todo</button>
+              </div>
+              <div class="d-flex gap-2 align-items-end flex-wrap">
+                <div><label class="small fw-bold d-block">Desde:</label><input type="datetime-local" id="inicio_${htmlId}" class="form-control form-control-sm" value="${formatearFechaLocal(ayer)}"></div>
+                <div><label class="small fw-bold d-block">Hasta:</label><input type="datetime-local" id="fin_${htmlId}" class="form-control form-control-sm" value="${formatearFechaLocal(ahora)}"></div>
+                <button class="btn btn-primary btn-sm px-4" onclick="actualizarUnEquipo('${idEquipo}')">Actualizar</button>
+              </div>
+            </div>
+          </div>
+        `);
+        actualizarUnEquipo(idEquipo);
+      });
+
+      if (!document.getElementById('medidorGlobal')) {
+        document.body.insertAdjacentHTML('beforeend', '<div id="medidorGlobal" class="medidor-label"></div>');
+      }
+    }
+
+    function setPreset(btn, htmlId) {
+      let range = btn.dataset.range;
+      let ahora = new Date();
+      let inicio;
+
+      switch (range) {
+        case '1h': inicio = new Date(ahora.getTime() - 1 * 3600000); break;
+        case '12h': inicio = new Date(ahora.getTime() - 12 * 3600000); break;
+        case '24h': inicio = new Date(ahora.getTime() - 24 * 3600000); break;
+        case '7d': inicio = new Date(ahora.getTime() - 7 * 86400000); break;
+        case 'all': inicio = new Date(2020, 0, 1); break;
+        default: inicio = new Date(ahora.getTime() - 24 * 3600000); break;
+      }
+      document.getElementById('inicio_' + htmlId).value = formatearFechaLocal(inicio);
+      document.getElementById('fin_' + htmlId).value = formatearFechaLocal(ahora);
+
+      let container = btn.parentElement;
+      container.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      let idEquipo = mapaEquipos[htmlId];
+      if (idEquipo) { actualizarUnEquipo(idEquipo); }
+    }
+
+    function renderizarTodo(htmlId, datos, esPremium, idEquipoOriginal) {
+      if (!datos || !datos.length) return;
+
+      // 1. ACTUALIZAR PANEL IZQUIERDO (Siempre muestra el último dato recibido en tiempo real)
+      let ult = datos[datos.length - 1];
+      let dReporte = new Date(ult[0]);
+
+      document.getElementById('reporte_' + htmlId).innerText = "🕒 " + dReporte.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      document.getElementById('temp_' + htmlId).innerText = ult[2] + "°";
+      document.getElementById('tamb_' + htmlId).innerText = ult[3];
+      document.getElementById('hum_' + htmlId).innerText = ult[4];
+
+      // Actualizar Badges de Estado
+      let bComp = document.getElementById('badge_comp_' + htmlId);
+      bComp.className = (ult[7] == 1) ? "badge status-badge bg-success" : "badge status-badge bg-secondary";
+      
+      let bDef = document.getElementById('badge_defrost_' + htmlId);
+      bDef.className = (ult[8] == 1) ? "badge status-badge bg-info text-dark" : "badge status-badge bg-secondary";
+
+      let pta = document.getElementById('badge_puerta_' + htmlId);
+      pta.className = (ult[5] === "ABIERTA") ? "badge status-badge bg-danger" : "badge status-badge bg-secondary";
+
+      // 2. BLOQUEO VISUAL
+      let wrapper = document.getElementById('wrapper_' + htmlId);
+      let chartDiv = document.getElementById('chart_' + htmlId);
+      let tablaDiv = document.getElementById('tabla_' + htmlId);
+
+      if (!esPremium) {
+        chartDiv.classList.add('chart-blurred');
+        if (!document.getElementById('overlay_' + htmlId)) {
+          wrapper.insertAdjacentHTML('beforeend', `
+            <div id="overlay_${htmlId}" class="premium-overlay">
+              <div class="card p-4 shadow-lg text-center" style="max-width: 300px; border: 2px solid #ffc107; background: rgba(255,255,255,0.95);">
+                <h6 class="fw-bold mb-1 text-dark">Modo de Prueba</h6>
+                <p class="small mb-3 text-muted">Contrate el abono mensual para desbloquear el historial, analizar gráficos y exportar reportes.</p>
+                <button class="btn-upgrade" onclick="solicitarPremium('${idEquipoOriginal}')">🚀 ACTIVAR PREMIUM</button>
+              </div>
+            </div>
+          `);
+        }
+        tablaDiv.innerHTML = "<tr><td colspan='5' class='text-muted p-4'><i>Historial disponible en Plan Premium</i></td></tr>";
+      } else {
+        chartDiv.classList.remove('chart-blurred');
+        let overlay = document.getElementById('overlay_' + htmlId);
+        if (overlay) overlay.remove();
+
+        let htmlTabla = "";
+        datos.slice().reverse().forEach((f, index) => {
+          let realIdx = datos.length - 1 - index;
+          let h = new Date(f[0]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          let compState = (f[7] == 1) ? "🟢" : "-";
+          let defState = (f[8] == 1) ? "❄️" : "-";
+          htmlTabla += `
+            <tr id="fila_${htmlId}_${realIdx}" class="fila-clickeable" onclick="seleccionarPuntoGrafico('${htmlId}', ${realIdx})">
+              <td>${h}</td>
+              <td><strong>${f[2]}°</strong></td>
+              <td>${parseFloat(f[3]).toFixed(1)}°</td>
+              <td>${parseFloat(f[4]).toFixed(0)}%</td>
+              <td>${compState} ${defState}</td>
+            </tr>`;
+        });
+        tablaDiv.innerHTML = htmlTabla;
+      }
+
+      redibujarGraficoSolo(htmlId);
+    }
+
+    function seleccionarPuntoGrafico(htmlId, rowIdx) {
+      document.querySelectorAll(`#container_tabla_${htmlId} tr`).forEach(r => r.classList.remove('fila-resaltada'));
+      let fila = document.getElementById(`fila_${htmlId}_${rowIdx}`);
+      if (fila) fila.classList.add('fila-resaltada');
+      let chart = graficosInstancias[htmlId];
+      if (chart) { chart.setSelection([{ row: rowIdx, column: 1 }]); }
+    }
+
+    function redibujarGraficoSolo(htmlId) {
+      let datos = datosCachados[htmlId];
+      if (!datos || !datos.length) return;
+
+      let showAmb = document.getElementById('checkAmb_' + htmlId).checked;
+      let showHum = document.getElementById('checkHum_' + htmlId).checked;
+      let showComp = document.getElementById('checkComp_' + htmlId).checked;
+      let showDef = document.getElementById('checkDef_' + htmlId).checked;
+
+      let dataTable = new google.visualization.DataTable();
+      dataTable.addColumn('datetime', 'Tiempo');
+      dataTable.addColumn('number', 'Cámara');
+      
+      if (showAmb) dataTable.addColumn('number', 'Ambiente');
+      if (showHum) dataTable.addColumn('number', 'Humedad');
+      if (showComp) dataTable.addColumn('number', 'Compresor');
+      if (showDef) dataTable.addColumn('number', 'Defrost');
+
+      let rows = [];
+      datos.forEach(f => {
+        let fila = [new Date(f[0]), parseFloat(f[2])];
+        if (showAmb) fila.push(parseFloat(f[3]) || null);
+        if (showHum) fila.push(parseFloat(f[4]) || null);
+        if (showComp) fila.push((f[7] == 1) ? 1 : 0);
+        if (showDef) fila.push((f[8] == 1) ? 1 : 0);
+        rows.push(fila);
+      });
+
+      dataTable.addRows(rows);
+
+      // Mapear series a los colores e índices correctos
+      let seriesConfig = { 0: { color: '#0d6efd', lineWidth: 3 } }; // Cámara siempre índice 0
+      let currentIdx = 1;
+      
+      if (showAmb) { seriesConfig[currentIdx] = { color: '#ffc107', lineWidth: 2, type: 'line' }; currentIdx++; }
+      if (showHum) { seriesConfig[currentIdx] = { color: '#6f42c1', lineWidth: 2, type: 'line', targetAxisIndex: 0 }; currentIdx++; }
+      if (showComp) { seriesConfig[currentIdx] = { color: '#198754', type: 'area', targetAxisIndex: 1, areaOpacity: 0.15, lineWidth: 1 }; currentIdx++; }
+      if (showDef) { seriesConfig[currentIdx] = { color: '#0dcaf0', type: 'area', targetAxisIndex: 1, areaOpacity: 0.3, lineWidth: 1 }; currentIdx++; }
+
+      let options = {
+        chartArea: { width: '92%', height: '80%', top: 10 },
+        hAxis: { format: 'dd/MM HH:mm', viewWindow: viewWindows[htmlId] || null, gridlines: { count: -1 } },
+        vAxes: { 0: { title: '°C / %' }, 1: { ticks: [0, 1], minValue: 0, maxValue: 1, textPosition: 'none' } },
+        seriesType: 'line',
+        series: seriesConfig,
+        legend: { position: 'none' },
+        enableInteractivity: true,
+        selectionMode: 'single',
+        tooltip: { trigger: 'focus' }
+      };
+
+      let chart = new google.visualization.ComboChart(document.getElementById('chart_' + htmlId));
+      graficosInstancias[htmlId] = chart;
+      chart.draw(dataTable, options);
+
+      google.visualization.events.addListener(chart, 'select', () => {
+        let selection = chart.getSelection();
+        if (selection.length > 0) {
+          let row = selection[0].row;
+          document.querySelectorAll(`#container_tabla_${htmlId} tr`).forEach(r => r.classList.remove('fila-resaltada'));
+          let fila = document.getElementById(`fila_${htmlId}_${row}`);
+          if (fila) { fila.classList.add('fila-resaltada'); scrollToRow(htmlId, row); }
+          chart.setSelection([]);
+        }
+      });
+      configurarZoomMedidor(htmlId, chart, dataTable);
+    }
+
+    function scrollToRow(htmlId, rowIndex) {
+      let tablaContainer = document.getElementById('container_tabla_' + htmlId);
+      let fila = document.getElementById('fila_' + htmlId + '_' + rowIndex);
+      if (fila) {
+        let filaTop = fila.offsetTop;
+        let filaHeight = fila.offsetHeight;
+        let containerHeight = tablaContainer.clientHeight;
+        tablaContainer.scrollTop = Math.max(0, filaTop - (containerHeight / 2) + (filaHeight / 2));
+      }
+    }
+
+    function configurarZoomMedidor(htmlId, chart, dataTable) {
+      let wrapper = document.getElementById('wrapper_' + htmlId);
+      let area = document.getElementById('area_' + htmlId);
+
+      if (!medidoresEstado[htmlId]) {
+        medidoresEstado[htmlId] = { isDragging: false, startX: 0, startT: null };
+      }
+
+      wrapper.onmousedown = (e) => {
+        let switchMedir = document.getElementById('checkMedir_' + htmlId);
+        if (!switchMedir || !switchMedir.checked) return;
+        let rect = wrapper.getBoundingClientRect();
+        let x = e.clientX - rect.left;
+        let layout = chart.getChartLayoutInterface();
+        let chartBox = layout.getChartAreaBoundingBox();
+        if (x < chartBox.left || x > chartBox.left + chartBox.width) return;
+        medidoresEstado[htmlId].isDragging = true;
+        medidoresEstado[htmlId].startX = x;
+        medidoresEstado[htmlId].startT = layout.getHAxisValue(x);
+        area.style.left = x + 'px'; area.style.width = '0px'; area.style.display = 'block';
+      };
+
+      wrapper.onmousemove = (e) => {
+        if (!medidoresEstado[htmlId].isDragging) return;
+        let rect = wrapper.getBoundingClientRect();
+        let x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+        let layout = chart.getChartLayoutInterface();
+        let currentT = layout.getHAxisValue(x);
+        area.style.left = Math.min(medidoresEstado[htmlId].startX, x) + 'px';
+        area.style.width = Math.abs(medidoresEstado[htmlId].startX - x) + 'px';
+
+        if (medidoresEstado[htmlId].startT && currentT) {
+          let diffMins = Math.round(Math.abs(currentT - medidoresEstado[htmlId].startT) / 60000);
+          let h = Math.floor(diffMins / 60);
+          let m = diffMins % 60;
+          let label = document.getElementById('medidorGlobal');
+          label.innerText = h > 0 ? `⏱ ${h}h ${m}m` : `⏱ ${m} min`;
+          label.style.left = (e.clientX + 15) + 'px';
+          label.style.top = (e.clientY - 30) + 'px';
+          label.style.display = 'block';
+        }
+      };
+
+      wrapper.onmouseup = () => {
+        if (medidoresEstado[htmlId].isDragging) {
+          setTimeout(() => { area.style.display = 'none'; let label = document.getElementById('medidorGlobal'); if (label) label.style.display = 'none'; }, 700);
+        }
+        medidoresEstado[htmlId].isDragging = false;
+      };
+
+      wrapper.onmouseleave = () => {
+        if (medidoresEstado[htmlId].isDragging) {
+          medidoresEstado[htmlId].isDragging = false;
+          area.style.display = 'none';
+          let label = document.getElementById('medidorGlobal');
+          if (label) label.style.display = 'none';
+        }
+      };
+
+      wrapper.onwheel = (e) => {
+        e.preventDefault(); e.stopPropagation();
+        let rect = wrapper.getBoundingClientRect();
+        let mouseX = e.clientX - rect.left;
+        let layout = chart.getChartLayoutInterface();
+        let chartBox = layout.getChartAreaBoundingBox();
+        if (mouseX < chartBox.left || mouseX > chartBox.left + chartBox.width) return;
+        let mouseTime = layout.getHAxisValue(mouseX);
+        let chartRange = dataTable.getColumnRange(0);
+        let currentMin = viewWindows[htmlId] ? viewWindows[htmlId].min : chartRange.min;
+        let currentMax = viewWindows[htmlId] ? viewWindows[htmlId].max : chartRange.max;
+        let zoomFactor = e.deltaY > 0 ? 1.3 : 0.75;
+        let currentDuration = currentMax.getTime() - currentMin.getTime();
+        let newDuration = currentDuration * zoomFactor;
+        let mouseFraction = (mouseTime.getTime() - currentMin.getTime()) / currentDuration;
+        let newMin = new Date(mouseTime.getTime() - newDuration * mouseFraction);
+        let newMax = new Date(newMin.getTime() + newDuration);
+        if (newMin < chartRange.min) newMin = chartRange.min;
+        if (newMax > chartRange.max) newMax = chartRange.max;
+        viewWindows[htmlId] = { min: newMin, max: newMax };
+        redibujarGraficoSolo(htmlId);
+      };
+    }
+  </script>
+</body>
+</html>
