@@ -21,7 +21,7 @@ Su objetivo es ahorrarte tiempo, reducir errores y ayudarte a avanzar más rápi
 
 ### Ejemplos básicos de uso
 
-- “Explicame qué hace este archivo y cómo mejorarlo.”
+- “Explicá qué hace este archivo y cómo mejorarlo.”
 - “Corregí este bug y dejá el cambio listo para PR.”
-- “Revisá este PR y decime riesgos o mejoras.”
+- “Revisá este PR y decí qué riesgos o mejoras hay.”
 - “Automatizá esta tarea manual que hacemos siempre.”
